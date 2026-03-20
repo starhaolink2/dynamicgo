@@ -47,47 +47,7 @@ func (self *BinaryConv) do(ctx context.Context, src []byte, desc *proto.TypeDesc
 
 	// when desc is Message
 	messageDesc := desc.Message()
-	comma := false
-
-	*out = json.EncodeObjectBegin(*out)
-
-	for p.Read < len(src) {
-		// Parse Tag to preprocess Descriptor does not have the field
-		fieldId, typeId, _, e := p.ConsumeTag()
-		if e != nil {
-			return wrapError(meta.ErrRead, "", e)
-		}
-
-		fd := messageDesc.ByNumber(fieldId)
-		if fd == nil {
-			if self.opts.DisallowUnknownField {
-				return wrapError(meta.ErrUnknownField, fmt.Sprintf("unknown field %d", fieldId), nil)
-			}
-			if e := p.Skip(typeId, false); e != nil {
-				return wrapError(meta.ErrRead, "", e)
-			}
-			continue
-		}
-
-		if comma {
-			*out = json.EncodeObjectComma(*out)
-		} else {
-			comma = true
-		}
-
-		// NOTICE: always use jsonName here, because jsonName always equals to name by default
-		*out = json.EncodeString(*out, fd.JSONName())
-		*out = json.EncodeObjectColon(*out)
-		// Parse ProtoData and encode into json format
-		protoLen = len(src) - p.Read
-		err := self.doRecurse(ctx, fd.Type(), out, resp, &p, typeId, protoLen)
-		if err != nil {
-			return unwrapError(fmt.Sprintf("converting field %s of MESSAGE %s failed", fd.Name(), fd.Kind()), err)
-		}
-	}
-
-	*out = json.EncodeObjectEnd(*out)
-	return err
+	return self.unmarshalMessage(ctx, resp, &p, out, messageDesc, protoLen)
 }
 
 // Parse ProtoData into JSONData by DescriptorType
@@ -215,52 +175,135 @@ func (self *BinaryConv) unmarshalSingular(ctx context.Context, resp http.Respons
 		if e != nil {
 			return wrapError(meta.ErrRead, "unmarshal Byteskind error", e)
 		}
-		message := (*fd).Message()
-		comma := false
-		start := p.Read
-
-		*out = json.EncodeObjectBegin(*out)
-		subLen := l
-		for p.Read < start+l {
-			fieldId, typeId, tagLen, e := p.ConsumeTag()
-			if e != nil {
-				return wrapError(meta.ErrRead, "", e)
-			}
-
-			fd := message.ByNumber(fieldId)
-			if fd == nil {
-				if self.opts.DisallowUnknownField {
-					return wrapError(meta.ErrUnknownField, fmt.Sprintf("unknown field %d", fieldId), nil)
-				}
-				if e := p.Skip(typeId, false); e != nil {
-					return wrapError(meta.ErrRead, "", e)
-				}
-				continue
-			}
-
-			if comma {
-				*out = json.EncodeObjectComma(*out)
-			} else {
-				comma = true
-			}
-
-			*out = json.EncodeString(*out, fd.JSONName())
-			*out = json.EncodeObjectColon(*out)
-			subLen = subLen - tagLen
-			// parse MessageFieldValue recursive
-			fieldStart := p.Read
-			err := self.doRecurse(ctx, fd.Type(), out, resp, p, typeId, subLen)
-			if err != nil {
-				return unwrapError(fmt.Sprintf("converting field %s of MESSAGE %s failed", fd.Name(), fd.Kind()), err)
-			}
-			fieldEnd := p.Read
-			subLen = subLen - (fieldEnd - fieldStart)
+		if err := self.unmarshalMessage(ctx, resp, p, out, (*fd).Message(), l); err != nil {
+			return err
 		}
-		*out = json.EncodeObjectEnd(*out)
 	default:
 		return wrapError(meta.ErrUnsupportedType, fmt.Sprintf("unknown descriptor type %s", fd.Type()), nil)
 	}
 	return
+}
+
+func (self *BinaryConv) unmarshalMessage(ctx context.Context, resp http.ResponseSetter, p *binary.BinaryProtocol, out *[]byte, messageDesc *proto.MessageDescriptor, protoLen int) (err error) {
+	comma := false
+	end := p.Read + protoLen
+	var seenFields map[proto.FieldNumber]struct{}
+	if self.opts.WriteDefaultField {
+		seenFields = make(map[proto.FieldNumber]struct{}, messageDesc.FieldsCount())
+	}
+
+	*out = json.EncodeObjectBegin(*out)
+
+	for p.Read < end {
+		fieldId, typeId, _, e := p.ConsumeTag()
+		if e != nil {
+			return wrapError(meta.ErrRead, "", e)
+		}
+
+		fd := messageDesc.ByNumber(fieldId)
+		if fd == nil {
+			if self.opts.DisallowUnknownField {
+				return wrapError(meta.ErrUnknownField, fmt.Sprintf("unknown field %d", fieldId), nil)
+			}
+			if e := p.Skip(typeId, false); e != nil {
+				return wrapError(meta.ErrRead, "", e)
+			}
+			continue
+		}
+
+		if seenFields != nil {
+			seenFields[fieldId] = struct{}{}
+		}
+
+		if comma {
+			*out = json.EncodeObjectComma(*out)
+		} else {
+			comma = true
+		}
+
+		*out = json.EncodeString(*out, fd.JSONName())
+		*out = json.EncodeObjectColon(*out)
+		fieldProtoLen := end - p.Read
+		err := self.doRecurse(ctx, fd.Type(), out, resp, p, typeId, fieldProtoLen)
+		if err != nil {
+			return unwrapError(fmt.Sprintf("converting field %s of MESSAGE %s failed", fd.Name(), fd.Kind()), err)
+		}
+	}
+
+	if seenFields != nil {
+		if err := self.writeMissingDefaultFields(out, messageDesc, seenFields, &comma); err != nil {
+			return err
+		}
+	}
+
+	*out = json.EncodeObjectEnd(*out)
+	return nil
+}
+
+func (self *BinaryConv) writeMissingDefaultFields(out *[]byte, messageDesc *proto.MessageDescriptor, seenFields map[proto.FieldNumber]struct{}, comma *bool) error {
+	for _, field := range messageDesc.Fields() {
+		if _, ok := seenFields[field.Number()]; ok {
+			continue
+		}
+		if field.Type().Type() == proto.MESSAGE {
+			continue
+		}
+
+		if *comma {
+			*out = json.EncodeObjectComma(*out)
+		} else {
+			*comma = true
+		}
+		*out = json.EncodeString(*out, field.JSONName())
+		*out = json.EncodeObjectColon(*out)
+		if err := self.writeDefaultValue(out, field.Type()); err != nil {
+			return unwrapError(fmt.Sprintf("writing default field %s failed", field.Name()), err)
+		}
+	}
+	return nil
+}
+
+func (self *BinaryConv) writeDefaultValue(out *[]byte, desc *proto.TypeDescriptor) error {
+	switch {
+	case desc.IsList():
+		*out = json.EncodeArrayBegin(*out)
+		*out = json.EncodeArrayEnd(*out)
+		return nil
+	case desc.IsMap():
+		*out = json.EncodeObjectBegin(*out)
+		*out = json.EncodeObjectEnd(*out)
+		return nil
+	}
+
+	switch desc.Type() {
+	case proto.BOOL:
+		*out = json.EncodeBool(*out, false)
+	case proto.ENUM:
+		*out = json.EncodeInt64(*out, 0)
+	case proto.INT32, proto.SINT32, proto.UINT32, proto.FIX32, proto.SFIX32:
+		*out = json.EncodeInt64(*out, 0)
+	case proto.INT64:
+		if self.opts.Int642String {
+			*out = append(*out, '"')
+			*out = json.EncodeInt64(*out, 0)
+			*out = append(*out, '"')
+		} else {
+			*out = json.EncodeInt64(*out, 0)
+		}
+	case proto.SINT64, proto.UINT64, proto.FIX64, proto.SFIX64:
+		*out = json.EncodeInt64(*out, 0)
+	case proto.FLOAT, proto.DOUBLE:
+		*out = json.EncodeFloat64(*out, 0)
+	case proto.STRING:
+		*out = json.EncodeString(*out, "")
+	case proto.BYTE:
+		*out = json.EncodeBaniry(*out, nil)
+	case proto.MESSAGE:
+		return nil
+	default:
+		return wrapError(meta.ErrUnsupportedType, fmt.Sprintf("unknown descriptor type %s", desc.Type()), nil)
+	}
+	return nil
 }
 
 // parse ListType

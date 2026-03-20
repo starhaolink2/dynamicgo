@@ -1,6 +1,10 @@
 package proto
 
-import "github.com/cloudwego/dynamicgo/internal/util"
+import (
+	"unsafe"
+
+	"github.com/cloudwego/dynamicgo/internal/util"
+)
 
 type TypeDescriptor struct {
 	baseId FieldNumber // for LIST/MAP to write field tag by baseId
@@ -137,6 +141,14 @@ func (m *MessageDescriptor) ByNumber(id FieldNumber) *FieldDescriptor {
 
 func (m *MessageDescriptor) FieldsCount() int {
 	return m.ids.Size() - 1
+}
+
+func (m *MessageDescriptor) Fields() []*FieldDescriptor {
+	ret := make([]*FieldDescriptor, 0, len(m.ids.All()))
+	for _, field := range m.ids.All() {
+		ret = append(ret, (*FieldDescriptor)(unsafe.Pointer(field)))
+	}
+	return ret
 }
 
 type MethodDescriptor struct {

@@ -926,3 +926,85 @@ func TestNestedField(t *testing.T) {
 	})
 
 }
+
+func TestConvProto2JSON_WriteDefaultField(t *testing.T) {
+	protoContent := `
+	syntax = "proto3";
+
+	message Inner {
+		bool active = 1;
+		string alias = 2;
+		repeated int32 scores = 3;
+		map<string, int32> labels = 4;
+		Child child = 5;
+	}
+
+	message Child {
+		string note = 1;
+	}
+
+	message ExampleReq {
+		bool enabled = 1;
+		int32 count = 2;
+		string title = 3;
+		bytes payload = 4;
+		repeated int32 ids = 5;
+		map<string, int32> tags = 6;
+		Inner inner = 7;
+	}
+
+	service Service {
+		rpc Example(ExampleReq) returns (ExampleReq);
+	}
+	`
+
+	ctx := context.Background()
+	serviceDesc, err := proto.NewDescritorFromContent(ctx, "default.proto", protoContent, map[string]string{})
+	require.NoError(t, err)
+	reqDesc := serviceDesc.LookupMethodByName("Example").Input()
+
+	t.Run("disabled", func(t *testing.T) {
+		conv2 := NewBinaryConv(conv.Options{})
+		out, err := conv2.Do(ctx, reqDesc, nil)
+		require.NoError(t, err)
+		require.Equal(t, `{}`, string(out))
+	})
+
+	t.Run("root missing fields", func(t *testing.T) {
+		conv2 := NewBinaryConv(conv.Options{WriteDefaultField: true})
+		out, err := conv2.Do(ctx, reqDesc, nil)
+		require.NoError(t, err)
+		require.JSONEq(t, `{
+			"enabled": false,
+			"count": 0,
+			"title": "",
+			"payload": "",
+			"ids": [],
+			"tags": {}
+		}`, string(out))
+	})
+
+	t.Run("nested object keeps object switch but fills inner defaults", func(t *testing.T) {
+		conv1 := j2p.NewBinaryConv(conv.Options{})
+		in, err := conv1.Do(ctx, reqDesc, []byte(`{"inner":{}}`))
+		require.NoError(t, err)
+
+		conv2 := NewBinaryConv(conv.Options{WriteDefaultField: true})
+		out, err := conv2.Do(ctx, reqDesc, in)
+		require.NoError(t, err)
+		require.JSONEq(t, `{
+			"inner": {
+				"active": false,
+				"alias": "",
+				"scores": [],
+				"labels": {}
+			},
+			"enabled": false,
+			"count": 0,
+			"title": "",
+			"payload": "",
+			"ids": [],
+			"tags": {}
+		}`, string(out))
+	})
+}
