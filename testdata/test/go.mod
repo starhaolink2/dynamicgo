@@ -3,20 +3,20 @@ module github.com/cloudwego/dynamicgo/testdata/test
 go 1.19
 
 require (
-	github.com/bytedance/sonic v1.13.3
+	github.com/bytedance/sonic v1.15.0
 	github.com/cloudwego/dynamicgo v0.6.4
 	github.com/cloudwego/kitex v0.14.0
 	github.com/cloudwego/prutal v0.1.1
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
 	github.com/json-iterator/go v1.1.12
-	github.com/stretchr/testify v1.9.0
+	github.com/stretchr/testify v1.10.0
 	github.com/thrift-iterator/go v0.0.0-20190402154806-9b5a67519118
 )
 
 require (
-	github.com/bytedance/gopkg v0.1.2 // indirect
-	github.com/bytedance/sonic/loader v0.2.4 // indirect
-	github.com/cloudwego/base64x v0.1.5 // indirect
+	github.com/bytedance/gopkg v0.1.3 // indirect
+	github.com/bytedance/sonic/loader v0.5.0 // indirect
+	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/cloudwego/configmanager v0.2.3 // indirect
 	github.com/cloudwego/fastpb v0.0.5 // indirect
 	github.com/cloudwego/frugal v0.2.5 // indirect

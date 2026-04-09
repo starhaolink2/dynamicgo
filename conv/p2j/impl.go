@@ -221,7 +221,7 @@ func (self *BinaryConv) unmarshalMessage(ctx context.Context, resp http.Response
 			comma = true
 		}
 
-		*out = json.EncodeString(*out, fd.JSONName())
+		*out = json.EncodeString(*out, fd.Name())
 		*out = json.EncodeObjectColon(*out)
 		fieldProtoLen := end - p.Read
 		err := self.doRecurse(ctx, fd.Type(), out, resp, p, typeId, fieldProtoLen)
@@ -254,7 +254,7 @@ func (self *BinaryConv) writeMissingDefaultFields(out *[]byte, messageDesc *prot
 		} else {
 			*comma = true
 		}
-		*out = json.EncodeString(*out, field.JSONName())
+		*out = json.EncodeString(*out, field.Name())
 		*out = json.EncodeObjectColon(*out)
 		if err := self.writeDefaultValue(out, field.Type()); err != nil {
 			return unwrapError(fmt.Sprintf("writing default field %s failed", field.Name()), err)
