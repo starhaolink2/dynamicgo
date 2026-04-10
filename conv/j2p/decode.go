@@ -172,11 +172,28 @@ func (self *visitorUserNode) OnNull() error {
 		self.inskip = false
 		return nil
 	}
-	// self.stk[self.sp].val = &visitorUserNull{}
-	if err := self.incrSP(); err != nil {
-		return err
+
+	top := self.stk[self.sp]
+	if self.globalFieldDesc != nil {
+		switch top.typ {
+		case arrStkType:
+			return newError(meta.ErrDismatchType, fmt.Sprintf("field '%s' does not allow null array elements", top.state.fieldDesc.Name()), nil)
+		case mapStkType:
+			return newError(meta.ErrDismatchType, fmt.Sprintf("field '%s' does not allow null map values", top.state.fieldDesc.Name()), nil)
+		default:
+			self.globalFieldDesc = nil
+			return nil
+		}
 	}
-	return self.onValueEnd()
+
+	switch top.typ {
+	case arrStkType:
+		return newError(meta.ErrDismatchType, fmt.Sprintf("field '%s' does not allow null array elements", top.state.fieldDesc.Name()), nil)
+	case mapStkType:
+		return newError(meta.ErrDismatchType, fmt.Sprintf("field '%s' does not allow null map values", top.state.fieldDesc.Name()), nil)
+	default:
+		return newError(meta.ErrDismatchType, "top-level message cannot be null", nil)
+	}
 }
 
 func (self *visitorUserNode) OnBool(v bool) error {

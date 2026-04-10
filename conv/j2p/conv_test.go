@@ -52,6 +52,7 @@ const (
 	exampleIDLPath      = "testdata/idl/example2.proto"
 	exampleJSON         = "testdata/data/example2req.json"
 	exampleProtoPath    = "testdata/data/example2_pb.bin" // not used
+	protoExampleIDLPath = "testdata/idl/example.proto"
 	basicExampleJSON    = "testdata/data/basic_example.json"
 	basicExampleIDLPath = "testdata/idl/basic_example.proto"
 	exampleEmptyIDLPath = "testdata/idl/empty_example.proto"
@@ -570,6 +571,20 @@ func getEmptyExampleDesc() *proto.TypeDescriptor {
 	return res
 }
 
+func getProtoExampleDesc(method string) *proto.TypeDescriptor {
+	opts := proto.Options{}
+	includeDirs := util_test.MustGitPath("testdata/idl/")
+	svc, err := opts.NewDescriptorFromPath(context.Background(), util_test.MustGitPath(protoExampleIDLPath), includeDirs)
+	if err != nil {
+		panic(err)
+	}
+	res := (*svc).LookupMethodByName(method).Input()
+	if res == nil {
+		panic("can't find Target MessageDescriptor")
+	}
+	return res
+}
+
 func getEnumExampleDesc() *proto.TypeDescriptor {
 	opts := proto.Options{}
 	includeDirs := util_test.MustGitPath("testdata/idl/") // includeDirs is used to find the include files.
@@ -680,6 +695,82 @@ func TestEmptyList(t *testing.T) {
 				Uint32: 1,
 			},
 		})
+	})
+}
+
+func TestNullHandling(t *testing.T) {
+	t.Run("skip known field nulls", func(t *testing.T) {
+		desc := getProtoExampleDesc("ScalarsMethodTest")
+		data := []byte(`{"Msg":null,"Path":"path","Query":null,"Header":true,"InnerBase":null,"RawUri":"raw","scalars":null}`)
+		cv := NewBinaryConv(conv.Options{})
+		ctx := context.Background()
+		out, err := cv.Do(ctx, desc, data)
+		require.NoError(t, err)
+
+		act := &example.ExampleScalarsReq{}
+		err = protoUnmarshal(out, act)
+		require.NoError(t, err)
+		require.Equal(t, &example.ExampleScalarsReq{
+			Path:   "path",
+			Header: true,
+			RawUri: "raw",
+		}, act)
+	})
+
+	t.Run("skip message null", func(t *testing.T) {
+		desc := getProtoExampleDesc("NestedMethodTest")
+		data := []byte(`{"TestNested":null}`)
+		cv := NewBinaryConv(conv.Options{})
+		ctx := context.Background()
+		out, err := cv.Do(ctx, desc, data)
+		require.NoError(t, err)
+
+		act := &example.ExampleNestedReq{}
+		err = protoUnmarshal(out, act)
+		require.NoError(t, err)
+		require.Equal(t, &example.ExampleNestedReq{}, act)
+	})
+
+	t.Run("skip map field null", func(t *testing.T) {
+		desc := getProtoExampleDesc("MapMethodTest")
+		data := []byte(`{"TestMap":{"int32ToStr":null,"strToNested":{"k":{"sString":"v"}}}}`)
+		cv := NewBinaryConv(conv.Options{})
+		ctx := context.Background()
+		out, err := cv.Do(ctx, desc, data)
+		require.NoError(t, err)
+
+		act := &example.ExampleMapReq{}
+		err = protoUnmarshal(out, act)
+		require.NoError(t, err)
+		require.Equal(t, &example.ExampleMapReq{
+			TestMap: &example.Maps{
+				StrToNested: map[string]*example.Nested{
+					"k": {
+						SString: "v",
+					},
+				},
+			},
+		}, act)
+	})
+
+	t.Run("reject null repeated elements", func(t *testing.T) {
+		desc := getProtoExampleDesc("ScalarsMethodTest")
+		data := []byte(`{"Path":"path","Query":[null,"a"]}`)
+		cv := NewBinaryConv(conv.Options{})
+		ctx := context.Background()
+		_, err := cv.Do(ctx, desc, data)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "null array elements")
+	})
+
+	t.Run("reject null map values", func(t *testing.T) {
+		desc := getProtoExampleDesc("MapMethodTest")
+		data := []byte(`{"TestMap":{"int32ToStr":{"1":null}}}`)
+		cv := NewBinaryConv(conv.Options{})
+		ctx := context.Background()
+		_, err := cv.Do(ctx, desc, data)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "null map values")
 	})
 }
 
