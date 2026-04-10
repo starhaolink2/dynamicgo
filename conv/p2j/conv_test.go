@@ -1008,3 +1008,47 @@ func TestConvProto2JSON_WriteDefaultField(t *testing.T) {
 		}`, string(out))
 	})
 }
+
+func TestConvProto2JSON_OptionalScalarNullSemantics(t *testing.T) {
+	protoContent := `
+	syntax = "proto3";
+
+	message ExampleReq {
+		optional string value = 1;
+		string plain = 2;
+	}
+
+	service Service {
+		rpc Example(ExampleReq) returns (ExampleReq);
+	}
+	`
+
+	ctx := context.Background()
+	serviceDesc, err := proto.NewDescritorFromContent(ctx, "optional.proto", protoContent, map[string]string{})
+	require.NoError(t, err)
+	reqDesc := serviceDesc.LookupMethodByName("Example").Input()
+
+	t.Run("missing optional string is null", func(t *testing.T) {
+		conv2 := NewBinaryConv(conv.Options{WriteDefaultField: true})
+		out, err := conv2.Do(ctx, reqDesc, nil)
+		require.NoError(t, err)
+		require.JSONEq(t, `{
+			"value": null,
+			"plain": ""
+		}`, string(out))
+	})
+
+	t.Run("present empty string stays empty string", func(t *testing.T) {
+		conv1 := j2p.NewBinaryConv(conv.Options{})
+		in, err := conv1.Do(ctx, reqDesc, []byte(`{"value":"","plain":""}`))
+		require.NoError(t, err)
+
+		conv2 := NewBinaryConv(conv.Options{WriteDefaultField: true})
+		out, err := conv2.Do(ctx, reqDesc, in)
+		require.NoError(t, err)
+		require.JSONEq(t, `{
+			"value": "",
+			"plain": ""
+		}`, string(out))
+	})
+}

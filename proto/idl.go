@@ -201,10 +201,16 @@ func parseMessage(ctx context.Context, msgDesc *desc.MessageDescriptor, cache co
 		id := field.GetNumber()
 		name := field.GetName()
 		jsonName := field.GetJSONName()
+		oneof := field.GetOneOf()
 		fieldDesc := &FieldDescriptor{
-			id:       FieldNumber(id),
-			name:     name,
-			jsonName: jsonName,
+			id:               FieldNumber(id),
+			name:             name,
+			jsonName:         jsonName,
+			hasPresence:      field.HasPresence(),
+			isRequired:       field.IsRequired(),
+			isProto3Optional: field.IsProto3Optional(),
+			inOneof:          oneof != nil,
+			syntheticOneof:   oneof != nil && oneof.IsSynthetic(),
 		}
 
 		// MAP TypeDescriptor

@@ -256,6 +256,10 @@ func (self *BinaryConv) writeMissingDefaultFields(out *[]byte, messageDesc *prot
 		}
 		*out = json.EncodeString(*out, field.Name())
 		*out = json.EncodeObjectColon(*out)
+		if field.HasNullableScalarPresence() {
+			*out = json.EncodeNull(*out)
+			continue
+		}
 		if err := self.writeDefaultValue(out, field.Type()); err != nil {
 			return unwrapError(fmt.Sprintf("writing default field %s failed", field.Name()), err)
 		}

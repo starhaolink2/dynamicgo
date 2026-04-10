@@ -65,6 +65,12 @@ type FieldDescriptor struct {
 	name     string
 	jsonName string
 	typ      *TypeDescriptor
+
+	hasPresence      bool
+	isRequired       bool
+	isProto3Optional bool
+	inOneof          bool
+	syntheticOneof   bool
 }
 
 func (f *FieldDescriptor) Number() FieldNumber {
@@ -85,6 +91,41 @@ func (f *FieldDescriptor) JSONName() string {
 
 func (f *FieldDescriptor) Type() *TypeDescriptor {
 	return f.typ
+}
+
+func (f *FieldDescriptor) HasPresence() bool {
+	return f.hasPresence
+}
+
+func (f *FieldDescriptor) IsRequired() bool {
+	return f.isRequired
+}
+
+func (f *FieldDescriptor) IsProto3Optional() bool {
+	return f.isProto3Optional
+}
+
+func (f *FieldDescriptor) InOneof() bool {
+	return f.inOneof
+}
+
+func (f *FieldDescriptor) IsSyntheticOneof() bool {
+	return f.syntheticOneof
+}
+
+func (f *FieldDescriptor) HasNullableScalarPresence() bool {
+	if !f.hasPresence || f.isRequired {
+		return false
+	}
+	if f.inOneof && !f.syntheticOneof {
+		return false
+	}
+	switch f.typ.Type() {
+	case MESSAGE, LIST, MAP:
+		return false
+	default:
+		return true
+	}
 }
 
 // when List+Message it can get message element descriptor
